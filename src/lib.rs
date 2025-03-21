@@ -1,29 +1,56 @@
 use std::{env, fs, path::Path};
 
 #[derive(Debug, PartialEq)]
-enum Identfiers {
+enum Tokens {
     LeftBrace,
     RightBrace,
+    DoubleQuote,
+    // Key(String),
+    Colon,
+    StringValue(String),
 }
 
-fn tokenize(input: String) -> Result<Vec<Identfiers>, ParserErrors> {
-    let mut tokens: Vec<Identfiers> = Vec::new();
-    let mut chars = input.chars();
+fn tokenize(input: String) -> Result<Vec<Tokens>, ParserErrors> {
+    let mut tokens: Vec<Tokens> = Vec::new();
+    let mut chars = input.chars().peekable();
     while let Some(c) = chars.next() {
+        //eat the whitespace nom nom nom
+        if c.is_whitespace() {
+            continue;
+        }
         match c {
-            '{' => tokens.push(Identfiers::LeftBrace),
-            '}' => tokens.push(Identfiers::RightBrace),
-            _ => return Err(ParserErrors::TokenizeError),
+            '{' => tokens.push(Tokens::LeftBrace),
+            '}' => tokens.push(Tokens::RightBrace),
+            '"' => tokens.push(Tokens::DoubleQuote),
+            ':' => tokens.push(Tokens::Colon),
+            _ => {
+                if c.is_alphanumeric() {
+                    let mut buffer: String = c.to_string();
+                    while let Some(c) = chars.peek() {
+                        if *c == '{' || *c == '}' || *c == '"' || *c == ':' {
+                            tokens.push(Tokens::StringValue(buffer));
+                            break;
+                        }
+                        let c = match chars.next() {
+                            Some(c) => c,
+                            None => break,
+                        };
+                        buffer.push(c);
+                    }
+                } else {
+                    return Err(ParserErrors::TokenizeError);
+                }
+            }
         }
     }
     Ok(tokens)
 }
 
-fn parse(tokens: Vec<Identfiers>) -> bool {
+fn parse(tokens: Vec<Tokens>) -> bool {
     if tokens.len() < 2 {
         return false;
     }
-    if tokens[0] != Identfiers::LeftBrace || tokens[1] != Identfiers::RightBrace {
+    if tokens[0] != Tokens::LeftBrace || tokens[1] != Tokens::RightBrace {
         return false;
     }
     true
@@ -88,9 +115,23 @@ mod tests {
     fn test_tokenize_on_braces() {
         let tokens = tokenize("{}".into()).unwrap();
 
-        assert_eq!(Identfiers::LeftBrace, tokens[0]);
+        assert_eq!(Tokens::LeftBrace, tokens[0]);
 
-        assert_eq!(Identfiers::RightBrace, tokens[1]);
+        assert_eq!(Tokens::RightBrace, tokens[1]);
+    }
+    #[test]
+    fn test_tokenize_string_key_values() {
+        //{"key": "value"}
+        let tokens = tokenize("{\"key\": \"value\"}".into()).unwrap();
+        assert_eq!(Tokens::LeftBrace, tokens[0]);
+        assert_eq!(Tokens::DoubleQuote, tokens[1]);
+        assert_eq!(Tokens::StringValue("key".into()), tokens[2]);
+        assert_eq!(Tokens::DoubleQuote, tokens[3]);
+        assert_eq!(Tokens::Colon, tokens[4]);
+        assert_eq!(Tokens::DoubleQuote, tokens[5]);
+        assert_eq!(Tokens::StringValue("value".into()), tokens[6]);
+        assert_eq!(Tokens::DoubleQuote, tokens[7]);
+        assert_eq!(Tokens::RightBrace, tokens[8]);
     }
 
     //i think it shouldn't error on unkown chars that is the job of the
@@ -100,21 +141,38 @@ mod tests {
 
     #[test]
     fn test_parse_works_on_valid_tokens() {
-        let tokens: Vec<Identfiers> = vec![Identfiers::LeftBrace, Identfiers::RightBrace];
+        let tokens: Vec<Tokens> = vec![Tokens::LeftBrace, Tokens::RightBrace];
 
         assert!(parse(tokens));
     }
 
     #[test]
     fn test_parse_fails_on_invalid_tokens() {
-        let tokens: Vec<Identfiers> = vec![Identfiers::RightBrace, Identfiers::RightBrace];
+        let tokens: Vec<Tokens> = vec![Tokens::RightBrace, Tokens::RightBrace];
 
         assert!(!parse(tokens));
     }
 
     #[test]
     fn test_parse_fails_on_short_tokens() {
-        let tokens: Vec<Identfiers> = Vec::new();
+        let tokens: Vec<Tokens> = Vec::new();
         assert!(!parse(tokens));
+    }
+
+    #[test]
+    fn test_parse_key_value_tokens_valid() {
+        let tokens = vec![
+            Tokens::LeftBrace,
+            Tokens::DoubleQuote,
+            Tokens::StringValue("key".into()),
+            Tokens::DoubleQuote,
+            Tokens::Colon,
+            Tokens::DoubleQuote,
+            Tokens::StringValue("value".into()),
+            Tokens::DoubleQuote,
+            Tokens::RightBrace,
+        ];
+
+        assert!(parse(tokens));
     }
 }
