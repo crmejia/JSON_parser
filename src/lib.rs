@@ -7,6 +7,7 @@ enum Tokens {
     DoubleQuote,
     // Key(String),
     Colon,
+    Comma,
     StringValue(String),
     EOF,
 }
@@ -24,6 +25,7 @@ fn tokenize(input: String) -> Result<Vec<Tokens>, ParserErrors> {
             '}' => tokens.push(Tokens::RightBrace),
             '"' => tokens.push(Tokens::DoubleQuote),
             ':' => tokens.push(Tokens::Colon),
+            ',' => tokens.push(Tokens::Comma),
             _ => {
                 if c.is_alphanumeric() {
                     let mut buffer: String = c.to_string();
@@ -73,104 +75,135 @@ impl JSONDocument {
         while let Some(token) = tokens.next() {
             match token {
                 Tokens::LeftBrace => {
-                    //parse object
-                    let mut object_name = String::new();
-                    let mut object_value = String::new();
+                    let Some(token) = tokens.peek() else {
+                        return Err(ParserErrors::ParsingError("expected token".to_string()));
+                    };
+                    if **(token) == Tokens::RightBrace {
+                        //empty object. Note that it is valid and should be pushed into the document
+                        self.data.push(JSONStruct::Object(Object {
+                            name: "".to_string(),
+                            value: "".to_string(),
+                        }));
+                        tokens.next();
+                        continue;
+                    }
+                    while let Some(token) = tokens.next() {
+                        //parse object
+                        let mut object_name = String::new();
+                        let mut object_value = String::new();
 
-                    //quotes or (closing) right brace
-                    let Some(token) = tokens.next() else { todo!() };
-                    match token {
-                        Tokens::DoubleQuote => (),
-                        Tokens::RightBrace => continue, //empty object
-                        _ => {
-                            return Err(ParserErrors::ParsingError(
-                                "expected double quote".to_string(),
-                            ))
-                        }
-                    };
+                        //comma or quotes
+                        match token {
+                            Tokens::Comma => {
+                                let Some(token) = tokens.next() else {
+                                    return Err(ParserErrors::ParsingError(
+                                        "expected token".to_string(),
+                                    ));
+                                };
+                                if *token != Tokens::DoubleQuote {
+                                    return Err(ParserErrors::ParsingError(
+                                        "expected double quote".to_string(),
+                                    ));
+                                }
+                            }
+                            Tokens::DoubleQuote => (),
+                            Tokens::EOF => break,
+                            _ => {
+                                return Err(ParserErrors::ParsingError(
+                                    "expected double quote".to_string(),
+                                ));
+                            }
+                        };
 
-                    //object name
-                    let Some(token) = tokens.next() else { todo!() };
-                    match token {
-                        Tokens::StringValue(name) => object_name = name.clone(),
-                        _ => {
-                            return Err(ParserErrors::ParsingError(
-                                "expected object name".to_string(),
-                            ))
-                        }
-                    };
+                        //object name
+                        let Some(token) = tokens.next() else { todo!() };
+                        match token {
+                            Tokens::StringValue(name) => object_name = name.clone(),
+                            _ => {
+                                return Err(ParserErrors::ParsingError(
+                                    "expected object name".to_string(),
+                                ))
+                            }
+                        };
 
-                    //quotes
-                    let Some(token) = tokens.next() else { todo!() };
-                    match token {
-                        Tokens::DoubleQuote => (),
-                        _ => {
-                            return Err(ParserErrors::ParsingError(
-                                "expected double quote".to_string(),
-                            ))
-                        }
-                    };
+                        //quotes
+                        let Some(token) = tokens.next() else { todo!() };
+                        match token {
+                            Tokens::DoubleQuote => (),
+                            _ => {
+                                return Err(ParserErrors::ParsingError(
+                                    "expected double quote".to_string(),
+                                ))
+                            }
+                        };
 
-                    //colon
-                    let Some(token) = tokens.next() else { todo!() };
-                    match token {
-                        Tokens::Colon => (),
-                        _ => return Err(ParserErrors::ParsingError("expected colon".to_string())),
-                    };
+                        //colon
+                        let Some(token) = tokens.next() else { todo!() };
+                        match token {
+                            Tokens::Colon => (),
+                            _ => {
+                                return Err(ParserErrors::ParsingError(
+                                    "expected colon".to_string(),
+                                ))
+                            }
+                        };
 
-                    //quotes
-                    let Some(token) = tokens.next() else { todo!() };
-                    match token {
-                        Tokens::DoubleQuote => (),
-                        _ => {
-                            return Err(ParserErrors::ParsingError(
-                                "expected double quote".to_string(),
-                            ))
-                        }
-                    };
+                        //quotes
+                        let Some(token) = tokens.next() else { todo!() };
+                        match token {
+                            Tokens::DoubleQuote => (),
+                            _ => {
+                                return Err(ParserErrors::ParsingError(
+                                    "expected double quote".to_string(),
+                                ))
+                            }
+                        };
 
-                    let Some(token) = tokens.next() else { todo!() };
-                    match token {
-                        Tokens::StringValue(value) => object_value = value.clone(),
-                        // Tokens::Numerical
-                        // Tokens::LeftBrace -- object
-                        // Tokens::LeftBracket -- array
-                        // Tokens::Boolean true or false
-                        // Tokens::null
-                        _ => {
-                            return Err(ParserErrors::ParsingError(
-                                "expected object value".to_string(),
-                            ))
-                        }
-                    };
+                        let Some(token) = tokens.next() else { todo!() };
+                        match token {
+                            Tokens::StringValue(value) => object_value = value.clone(),
+                            // Tokens::Numerical
+                            // Tokens::LeftBrace -- object
+                            // Tokens::LeftBracket -- array
+                            // Tokens::Boolean true or false
+                            // Tokens::null
+                            _ => {
+                                return Err(ParserErrors::ParsingError(
+                                    "expected object value".to_string(),
+                                ))
+                            }
+                        };
 
-                    //quotes
-                    let Some(token) = tokens.next() else { todo!() };
-                    match token {
-                        Tokens::DoubleQuote => (),
-                        _ => {
-                            return Err(ParserErrors::ParsingError(
-                                "expected double quote".to_string(),
-                            ))
-                        }
-                    };
-                    let object = Object {
-                        name: object_name,
-                        value: object_value,
-                    };
-                    self.data.push(JSONStruct::Object(object));
+                        //quotes
+                        let Some(token) = tokens.next() else { todo!() };
+                        match token {
+                            Tokens::DoubleQuote => (),
+                            _ => {
+                                return Err(ParserErrors::ParsingError(
+                                    "expected double quote".to_string(),
+                                ))
+                            }
+                        };
+                        let object = Object {
+                            name: object_name,
+                            value: object_value,
+                        };
+                        self.data.push(JSONStruct::Object(object));
 
-                    let Some(token) = tokens.next() else { todo!() };
-                    match token {
-                        Tokens::RightBrace => (),
-                        _ => {
-                            return Err(ParserErrors::ParsingError(
-                                "expected right brace".to_string(),
-                            ))
-                        }
-                    };
+                        let Some(token) = tokens.next() else { todo!() };
+                        match token {
+                            Tokens::RightBrace => (),
+                            Tokens::Comma => continue,
+                            _ => {
+                                return Err(ParserErrors::ParsingError(
+                                    "expected right brace".to_string(),
+                                ))
+                            }
+                        };
+                    }
                 }
                 // Tokens::LeftBracket => todo!(),//parse array
+                Tokens::EOF => break,
                 _ => {
                     return Err(ParserErrors::ParsingError(
                         "expected object or list".to_string(),
