@@ -1,14 +1,17 @@
-use std::{env, fs, path::Path};
+use std::{env, fs, num::ParseIntError, path::Path};
 
 #[derive(Debug, PartialEq)]
 enum Tokens {
     LeftBrace,
     RightBrace,
     DoubleQuote,
-    // Key(String),
     Colon,
     Comma,
     StringValue(String),
+    BooleanValue(bool),
+    IntegerValue(i32),
+    FloatValue(f32),
+    NullValue,
     EOF,
 }
 
@@ -27,11 +30,37 @@ fn tokenize(input: String) -> Result<Vec<Tokens>, ParserErrors> {
             ':' => tokens.push(Tokens::Colon),
             ',' => tokens.push(Tokens::Comma),
             _ => {
-                if c.is_alphanumeric() {
+                if c.is_alphanumeric() || c == '-' {
                     let mut buffer: String = c.to_string();
+
                     while let Some(c) = chars.peek() {
-                        if *c == '{' || *c == '}' || *c == '"' || *c == ':' {
-                            tokens.push(Tokens::StringValue(buffer));
+                        // if *c == '{' || *c == '}' || *c == '"' || *c == ':' || *c == ',' {
+                        if !c.is_alphanumeric() && *c != '.' && *c != '-' {
+                            if *c != '"'
+                                && (buffer == "true" || buffer == "false" || buffer == "null")
+                            {
+                                if buffer == "true" {
+                                    tokens.push(Tokens::BooleanValue(true));
+                                } else if buffer == "false" {
+                                    tokens.push(Tokens::BooleanValue(false));
+                                } else {
+                                    tokens.push(Tokens::NullValue);
+                                }
+                            } else if *c == '"' {
+                                tokens.push(Tokens::StringValue(buffer));
+                            } else {
+                                //parse a numerical value
+                                if buffer.contains(".")
+                                    || buffer.contains("e")
+                                    || buffer.contains("E")
+                                {
+                                    let float = buffer.parse::<f32>()?;
+                                    tokens.push(Tokens::FloatValue(float));
+                                } else {
+                                    let integer = buffer.parse::<i32>()?;
+                                    tokens.push(Tokens::IntegerValue(integer));
+                                }
+                            }
                             break;
                         }
                         let c = match chars.next() {
@@ -243,6 +272,10 @@ pub enum ParserErrors {
     ParsingError(String),
     #[error("IO error: {0}")]
     IoError(#[from] std::io::Error),
+    #[error("Parse Int Error: {0}")]
+    ParseIntError(#[from] std::num::ParseIntError),
+    #[error("Parse Float Error: {0}")]
+    ParseFloatError(#[from] std::num::ParseFloatError),
 }
 
 impl Config {
@@ -284,18 +317,20 @@ pub fn run() -> Result<(), ParserErrors> {
 mod tests {
     use super::*;
 
+    //tokenize tests
     #[test]
     fn test_tokenize_on_braces() {
         let tokens = tokenize("{}".into()).unwrap();
 
+        assert_eq!(tokens.len(), 3);
         assert_eq!(Tokens::LeftBrace, tokens[0]);
-
         assert_eq!(Tokens::RightBrace, tokens[1]);
     }
     #[test]
-    fn test_tokenize_string_key_values() {
+    fn test_tokenize_string_values() {
         //{"key": "value"}
         let tokens = tokenize("{\"key\": \"value\"}".into()).unwrap();
+        assert_eq!(tokens.len(), 10);
         assert_eq!(Tokens::LeftBrace, tokens[0]);
         assert_eq!(Tokens::DoubleQuote, tokens[1]);
         assert_eq!(Tokens::StringValue("key".into()), tokens[2]);
@@ -307,11 +342,109 @@ mod tests {
         assert_eq!(Tokens::RightBrace, tokens[8]);
     }
 
-    //i think it shouldn't error on unkown chars that is the job of the
-    // parser
     #[test]
-    fn test_tokenize_errors_on_unkown() {}
+    fn test_tokenize_errors_on_unknown() {
+        assert!(tokenize("?".into()).is_err());
+    }
 
+    #[test]
+    fn test_tokenize_bool_values() {
+        let tokens = tokenize("{\"key\": true, \"key2\": false}".into()).unwrap();
+        assert_eq!(tokens.len(), 14);
+        assert_eq!(Tokens::LeftBrace, tokens[0]);
+        assert_eq!(Tokens::DoubleQuote, tokens[1]);
+        assert_eq!(Tokens::StringValue("key".into()), tokens[2]);
+        assert_eq!(Tokens::DoubleQuote, tokens[3]);
+        assert_eq!(Tokens::Colon, tokens[4]);
+        assert_eq!(Tokens::BooleanValue(true), tokens[5]);
+        assert_eq!(Tokens::Comma, tokens[6]);
+        assert_eq!(Tokens::DoubleQuote, tokens[7]);
+        assert_eq!(Tokens::StringValue("key2".into()), tokens[8]);
+        assert_eq!(Tokens::DoubleQuote, tokens[9]);
+        assert_eq!(Tokens::Colon, tokens[10]);
+        assert_eq!(Tokens::BooleanValue(false), tokens[11]);
+        assert_eq!(Tokens::RightBrace, tokens[12]);
+    }
+
+    #[test]
+    fn test_tokenize_integer_values() {
+        let tokens = tokenize("{\"key\": -32, \"key2\": 14}".into()).unwrap();
+        assert_eq!(tokens.len(), 14);
+        assert_eq!(Tokens::LeftBrace, tokens[0]);
+        assert_eq!(Tokens::DoubleQuote, tokens[1]);
+        assert_eq!(Tokens::StringValue("key".into()), tokens[2]);
+        assert_eq!(Tokens::DoubleQuote, tokens[3]);
+        assert_eq!(Tokens::Colon, tokens[4]);
+        assert_eq!(Tokens::IntegerValue(-32), tokens[5]);
+        assert_eq!(Tokens::Comma, tokens[6]);
+        assert_eq!(Tokens::DoubleQuote, tokens[7]);
+        assert_eq!(Tokens::StringValue("key2".into()), tokens[8]);
+        assert_eq!(Tokens::DoubleQuote, tokens[9]);
+        assert_eq!(Tokens::Colon, tokens[10]);
+        assert_eq!(Tokens::IntegerValue(14), tokens[11]);
+        assert_eq!(Tokens::RightBrace, tokens[12]);
+    }
+
+    #[test]
+    fn test_tokenize_float_values() {
+        let tokens = tokenize("{\"key\": -3.2, \"key2\": 0.14}".into()).unwrap();
+        assert_eq!(tokens.len(), 14);
+        assert_eq!(Tokens::LeftBrace, tokens[0]);
+        assert_eq!(Tokens::DoubleQuote, tokens[1]);
+        assert_eq!(Tokens::StringValue("key".into()), tokens[2]);
+        assert_eq!(Tokens::DoubleQuote, tokens[3]);
+        assert_eq!(Tokens::Colon, tokens[4]);
+        assert_eq!(Tokens::FloatValue(-3.2), tokens[5]);
+        assert_eq!(Tokens::Comma, tokens[6]);
+        assert_eq!(Tokens::DoubleQuote, tokens[7]);
+        assert_eq!(Tokens::StringValue("key2".into()), tokens[8]);
+        assert_eq!(Tokens::DoubleQuote, tokens[9]);
+        assert_eq!(Tokens::Colon, tokens[10]);
+        assert_eq!(Tokens::FloatValue(0.14), tokens[11]);
+        assert_eq!(Tokens::RightBrace, tokens[12]);
+    }
+
+    #[test]
+    fn test_tokenize_float_scientific_notation_values() {
+        let tokens = tokenize("{\"key\": -3E3, \"key2\": 14E-4}".into()).unwrap();
+        //not parsing negative exponent e-1
+        assert_eq!(tokens.len(), 14);
+        assert_eq!(Tokens::LeftBrace, tokens[0]);
+        assert_eq!(Tokens::DoubleQuote, tokens[1]);
+        assert_eq!(Tokens::StringValue("key".into()), tokens[2]);
+        assert_eq!(Tokens::DoubleQuote, tokens[3]);
+        assert_eq!(Tokens::Colon, tokens[4]);
+        assert_eq!(Tokens::FloatValue(-3000.0), tokens[5]);
+        assert_eq!(Tokens::Comma, tokens[6]);
+        assert_eq!(Tokens::DoubleQuote, tokens[7]);
+        assert_eq!(Tokens::StringValue("key2".into()), tokens[8]);
+        assert_eq!(Tokens::DoubleQuote, tokens[9]);
+        assert_eq!(Tokens::Colon, tokens[10]);
+        assert_eq!(Tokens::FloatValue(0.0014), tokens[11]);
+        assert_eq!(Tokens::RightBrace, tokens[12]);
+    }
+
+    #[test]
+    fn test_tokenize_null_values() {
+        let tokens = tokenize("{\"key\": null, \"key2\": null}".into()).unwrap();
+        assert_eq!(tokens.len(), 14);
+        assert_eq!(Tokens::LeftBrace, tokens[0]);
+        assert_eq!(Tokens::DoubleQuote, tokens[1]);
+        assert_eq!(Tokens::StringValue("key".into()), tokens[2]);
+        assert_eq!(Tokens::DoubleQuote, tokens[3]);
+        assert_eq!(Tokens::Colon, tokens[4]);
+        assert_eq!(Tokens::NullValue, tokens[5]);
+        assert_eq!(Tokens::Comma, tokens[6]);
+        assert_eq!(Tokens::DoubleQuote, tokens[7]);
+        assert_eq!(Tokens::StringValue("key2".into()), tokens[8]);
+        assert_eq!(Tokens::DoubleQuote, tokens[9]);
+        assert_eq!(Tokens::Colon, tokens[10]);
+        assert_eq!(Tokens::NullValue, tokens[11]);
+        assert_eq!(Tokens::RightBrace, tokens[12]);
+    }
+
+    //Parsing tests
+    //------------------
     #[test]
     fn test_parse_works_on_single_braces_document() {
         let tokens: Vec<Tokens> = vec![Tokens::LeftBrace, Tokens::RightBrace];
