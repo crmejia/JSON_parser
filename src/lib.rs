@@ -1,6 +1,6 @@
-use std::{env, fs, num::ParseIntError, path::Path};
+use std::{env, fs, path::Path};
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 enum Tokens {
     LeftBrace,
     RightBrace,
@@ -82,19 +82,17 @@ fn tokenize(input: String) -> Result<Vec<Tokens>, ParserErrors> {
 enum JSONStruct {
     Object(Object),
     List,
-    Value,
+    // Value,
 }
 struct Object {
     name: String,
-    value: String, //keeping it string for now
-                   // value: json_struct, this allows nesting in theory
+    value: Tokens, //keeping it string for now
 }
 struct JSONDocument {
     data: Vec<JSONStruct>,
 }
 impl JSONDocument {
     fn parse(&mut self, tokens: Vec<Tokens>) -> Result<bool, ParserErrors> {
-        //initially let's parse objects
         if tokens.len() < 2 {
             return Err(ParserErrors::ParsingError(
                 "not enough elements".to_string(),
@@ -111,7 +109,7 @@ impl JSONDocument {
                         //empty object. Note that it is valid and should be pushed into the document
                         self.data.push(JSONStruct::Object(Object {
                             name: "".to_string(),
-                            value: "".to_string(),
+                            value: Tokens::StringValue("".into()),
                         }));
                         tokens.next();
                         continue;
@@ -119,7 +117,7 @@ impl JSONDocument {
                     while let Some(token) = tokens.next() {
                         //parse object
                         let mut object_name = String::new();
-                        let mut object_value = String::new();
+                        let mut object_value = Tokens::EOF;
 
                         //comma or quotes
                         match token {
@@ -177,42 +175,44 @@ impl JSONDocument {
                             }
                         };
 
-                        //quotes
+                        //value
                         let Some(token) = tokens.next() else { todo!() };
                         match token {
-                            Tokens::DoubleQuote => (),
-                            _ => {
-                                return Err(ParserErrors::ParsingError(
-                                    "expected double quote".to_string(),
-                                ))
+                            Tokens::DoubleQuote => {
+                                //String Value
+                                let Some(token) = tokens.next() else { todo!() };
+                                match token {
+                                    Tokens::StringValue(_) => object_value = token.clone(),
+                                    _ => {
+                                        return Err(ParserErrors::ParsingError(
+                                            "expected object value".to_string(),
+                                        ))
+                                    }
+                                };
+                                // closing quotes
+                                let Some(token) = tokens.next() else { todo!() };
+                                match token {
+                                    Tokens::DoubleQuote => (),
+                                    _ => {
+                                        return Err(ParserErrors::ParsingError(
+                                            "expected double quote".to_string(),
+                                        ))
+                                    }
+                                };
                             }
-                        };
-
-                        let Some(token) = tokens.next() else { todo!() };
-                        match token {
-                            Tokens::StringValue(value) => object_value = value.clone(),
-                            // Tokens::Numerical
+                            Tokens::IntegerValue(_) => object_value = token.clone(),
+                            Tokens::FloatValue(_) => object_value = token.clone(),
+                            Tokens::BooleanValue(_) => object_value = token.clone(),
+                            Tokens::NullValue => object_value = token.clone(),
                             // Tokens::LeftBrace -- object
                             // Tokens::LeftBracket -- array
-                            // Tokens::Boolean true or false
-                            // Tokens::null
-                            _ => {
-                                return Err(ParserErrors::ParsingError(
-                                    "expected object value".to_string(),
-                                ))
-                            }
-                        };
-
-                        //quotes
-                        let Some(token) = tokens.next() else { todo!() };
-                        match token {
-                            Tokens::DoubleQuote => (),
                             _ => {
                                 return Err(ParserErrors::ParsingError(
                                     "expected double quote".to_string(),
                                 ))
                             }
                         };
+
                         let object = Object {
                             name: object_name,
                             value: object_value,
@@ -243,20 +243,6 @@ impl JSONDocument {
         Ok(true)
     }
 }
-// fn parse(tokens: Vec<Tokens>) -> bool {
-//     if tokens.len() < 2 {
-//         return false;
-//     }
-//     // if tokens[0] != Tokens::LeftBrace || tokens[1] != Tokens::RightBrace {
-//     if tokens[0] != Tokens::LeftBrace {
-//         return false;
-//     }
-//     let mut tokens = tokens.iter().peekable();
-//     while let Some(token) = tokens.next() {
-//         match token {}
-//     }
-//     true
-// }
 
 struct Config {
     file_path: String,
@@ -482,10 +468,51 @@ mod tests {
             Tokens::StringValue("value".into()),
             Tokens::DoubleQuote,
             Tokens::RightBrace,
+            Tokens::EOF,
         ];
 
         let json_document = &mut JSONDocument { data: Vec::new() };
         let valid = json_document.parse(tokens).unwrap();
         assert!(valid);
     }
+}
+
+#[test]
+fn test_parse_boolean_integer_float_null_value_valid() {
+    let tokens = vec![
+        //{"key":true,
+        Tokens::LeftBrace,
+        Tokens::DoubleQuote,
+        Tokens::StringValue("key".into()),
+        Tokens::DoubleQuote,
+        Tokens::Colon,
+        Tokens::BooleanValue(true),
+        Tokens::Comma,
+        //"key":42,
+        Tokens::DoubleQuote,
+        Tokens::StringValue("key".into()),
+        Tokens::DoubleQuote,
+        Tokens::Colon,
+        Tokens::IntegerValue(42),
+        Tokens::Comma,
+        //"key":3.2,
+        Tokens::DoubleQuote,
+        Tokens::StringValue("key".into()),
+        Tokens::DoubleQuote,
+        Tokens::Colon,
+        Tokens::FloatValue(-3.2),
+        Tokens::Comma,
+        //"key":null}
+        Tokens::DoubleQuote,
+        Tokens::StringValue("key".into()),
+        Tokens::DoubleQuote,
+        Tokens::Colon,
+        Tokens::NullValue,
+        Tokens::RightBrace,
+        Tokens::EOF,
+    ];
+
+    let json_document = &mut JSONDocument { data: Vec::new() };
+    let valid = json_document.parse(tokens).unwrap();
+    assert!(valid);
 }
