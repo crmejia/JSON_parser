@@ -16,6 +16,41 @@ enum Tokens {
     NullValue,
     EOF,
 }
+impl Tokens {
+    fn parse_string_value<'a>(
+        tokens: &mut impl Iterator<Item = &'a Tokens>,
+    ) -> Result<String, ParserErrors> {
+        //the idea is to make sure the correct structure("<value>") exist and
+        //return the stringvalue token already parsed in a subset of items
+
+        let Some(token) = tokens.next() else {
+            return Err(ParserErrors::ParsingError(
+                "expected more tokens".to_string(),
+            ));
+        };
+
+        let name = match token {
+            Tokens::StringValue(name) => name,
+            _ => {
+                return Err(ParserErrors::ParsingError(
+                    "expected String Value".to_string(),
+                ))
+            }
+        };
+        //quotes
+        let Some(token) = tokens.next() else {
+            return Err(ParserErrors::ParsingError(
+                "expected more tokens".to_string(),
+            ));
+        };
+        if *token != Tokens::DoubleQuote {
+            return Err(ParserErrors::ParsingError(
+                "expected double quote(\")".to_string(),
+            ));
+        }
+        Ok(name.clone())
+    }
+}
 
 fn tokenize(input: String) -> Result<Vec<Tokens>, ParserErrors> {
     let mut tokens: Vec<Tokens> = Vec::new();
@@ -83,21 +118,162 @@ fn tokenize(input: String) -> Result<Vec<Tokens>, ParserErrors> {
     Ok(tokens)
 }
 
-enum JSONStruct {
-    Object(Object),
-    List(List),
-    // Value,
-}
-struct Object {
-    name: String,
-    value: Tokens, //keeping it string for now
+fn parse_object<'a>(
+    tokens: &mut Peekable<impl Iterator<Item = &'a Tokens>>,
+) -> Result<(), ParserErrors> {
+    while let Some(token) = tokens.next() {
+        println!("*** TOKEN = {:?} ***", token);
+        match token {
+            Tokens::EOF => break,
+            Tokens::LeftBrace => continue,
+            Tokens::RightBrace => {
+                // empty object
+                //Check if next value is not { means no more objects
+                continue;
+            }
+            Tokens::Comma => continue,
+            _ => {
+                if *token != Tokens::DoubleQuote {
+                    return Err(ParserErrors::ParsingError(
+                        "expected double quote(\")".to_string(),
+                    ));
+                }
+                //todo skip { if new iteration the function enters with the { already consumed
+                // let key = Tokens::parse_string_value(tokens)?;
+                Tokens::parse_string_value(tokens)?;
+
+                let Some(token) = tokens.next() else {
+                    return Err(ParserErrors::ParsingError(
+                        "expected more token".to_string(),
+                    ));
+                };
+                if *token != Tokens::Colon {
+                    return Err(ParserErrors::ParsingError(
+                        "expected colon token".to_string(),
+                    ));
+                }
+
+                let Some(token) = tokens.peek() else {
+                    return Err(ParserErrors::ParsingError("expected token".to_string()));
+                };
+
+                match *token {
+                    Tokens::LeftBrace => {
+                        parse_object(tokens)?;
+                        // let value = JSONnode::parse_object(tokens)?;
+                        // let object = Box::new(JSONnode::Object(Object { key, value }));
+                        // objects.push(object);
+                    }
+                    Tokens::LeftBracket => parse_list(tokens)?,
+                    Tokens::DoubleQuote => {
+                        println!("**HERE***");
+                        let Some(_) = tokens.next() else {
+                            return Err(ParserErrors::ParsingError(
+                                "expected more tokens".to_string(),
+                            ));
+                        };
+                        let Some(token) = tokens.next() else {
+                            return Err(ParserErrors::ParsingError(
+                                "expected more tokens".to_string(),
+                            ));
+                        };
+                        parse_value(token)?;
+                        let Some(token) = tokens.next() else {
+                            return Err(ParserErrors::ParsingError(
+                                "expected \" double quote".to_string(),
+                            ));
+                        };
+                        if *token != Tokens::DoubleQuote {
+                            return Err(ParserErrors::ParsingError(
+                                "expected \" double quote".to_string(),
+                            ));
+                        }
+                    }
+                    _ => {
+                        let Some(token) = tokens.next() else {
+                            return Err(ParserErrors::ParsingError(
+                                "expected more tokens".to_string(),
+                            ));
+                        };
+                        parse_value(token)?;
+                        // let value = JSONnode::parse_value(tokens)?;
+                        // let object = JSONnode::Object(vec![Object { key, value }]);
+                        // objects.push(object);
+                    }
+                };
+            }
+        }
+    }
+    Ok(())
 }
 
-struct List {
-    values: Vec<Tokens>,
+fn parse_list<'a>(
+    tokens: &mut Peekable<impl Iterator<Item = &'a Tokens>>,
+) -> Result<(), ParserErrors> {
+    while let Some(token) = tokens.next() {
+        match token {
+            Tokens::EOF => break,
+            Tokens::LeftBracket => continue,
+            Tokens::RightBracket =>
+            //empty list
+            {
+                continue
+            }
+            Tokens::Comma => continue,
+            Tokens::LeftBrace => parse_object(tokens)?,
+            Tokens::DoubleQuote => {
+                let Some(token) = tokens.next() else {
+                    return Err(ParserErrors::ParsingError(
+                        "expected more tokens".to_string(),
+                    ));
+                };
+                parse_value(token)?;
+                let Some(token) = tokens.next() else {
+                    return Err(ParserErrors::ParsingError(
+                        "expected \" double quote".to_string(),
+                    ));
+                };
+                if *token != Tokens::DoubleQuote {
+                    return Err(ParserErrors::ParsingError(
+                        "expected \" double quote".to_string(),
+                    ));
+                }
+            }
+            _ => parse_value(token)?,
+        }
+    }
+    Ok(())
 }
+
+fn parse_value(token: &Tokens) -> Result<(), ParserErrors> {
+    match token {
+        Tokens::StringValue(_) => (),
+        Tokens::IntegerValue(_) => (),
+        Tokens::FloatValue(_) => (),
+        Tokens::BooleanValue(_) => (),
+        Tokens::NullValue => (),
+        _ => {
+            return {
+                println!("*** TOKEN = {:?}", token);
+                Err(ParserErrors::ParsingError("unexpected token".to_string()))
+            }
+        }
+    };
+    Ok(())
+}
+// }
+
+// #[derive(Clone)]
+// struct Object {
+//     key: String,
+//     value: Box<Vec<JSONnode>>, //keeping it string for now
+// }
+
+// struct List {
+//     values: Vec<Tokens>,
+// }
 struct JSONDocument {
-    data: Vec<JSONStruct>,
+    // data: Vec<JSONnode>,
 }
 impl JSONDocument {
     fn parse(&mut self, tokens: Vec<Tokens>) -> Result<bool, ParserErrors> {
@@ -106,263 +282,25 @@ impl JSONDocument {
                 "not enough elements".to_string(),
             ));
         }
+
         let mut tokens = tokens.iter().peekable();
-        while let Some(token) = tokens.next() {
-            match token {
-                Tokens::LeftBrace => {
-                    let Some(token) = tokens.peek() else {
-                        return Err(ParserErrors::ParsingError("expected token".to_string()));
-                    };
-                    if **(token) == Tokens::RightBrace {
-                        //empty object. Note that it is valid and should be pushed into the document
-                        self.data.push(JSONStruct::Object(Object {
-                            name: "".to_string(),
-                            value: Tokens::StringValue("".into()),
-                        }));
-                        tokens.next();
-                        continue;
-                    }
-                    while let Some(token) = tokens.next() {
-                        //parse object
-                        let mut object_name = String::new();
-                        let mut object_value = Tokens::EOF;
 
-                        //comma or quotes
-                        match token {
-                            Tokens::Comma => {
-                                let Some(token) = tokens.next() else {
-                                    return Err(ParserErrors::ParsingError(
-                                        "expected token".to_string(),
-                                    ));
-                                };
-                                if *token != Tokens::DoubleQuote {
-                                    return Err(ParserErrors::ParsingError(
-                                        "expected double quote".to_string(),
-                                    ));
-                                }
-                            }
-                            Tokens::DoubleQuote => (),
-                            Tokens::EOF => break,
-                            _ => {
-                                return Err(ParserErrors::ParsingError(
-                                    "expected double quote".to_string(),
-                                ));
-                            }
-                        };
+        let Some(token) = tokens.peek() else {
+            return Err(ParserErrors::ParsingError("expected token".to_string()));
+        };
+        match token {
+            Tokens::LeftBrace => parse_object(&mut tokens)?,
+            Tokens::LeftBracket => parse_list(&mut tokens)?,
+            _ => {
+                return Err(ParserErrors::ParsingError(
+                    "invalid inital token".to_string(),
+                ))
+            }
+        };
 
-                        //object name
-                        let Some(token) = tokens.next() else {
-                            return Err(ParserErrors::ParsingError(
-                                "expected more tokens".to_string(),
-                            ));
-                        };
-                        match token {
-                            Tokens::StringValue(name) => object_name = name.clone(),
-                            _ => {
-                                return Err(ParserErrors::ParsingError(
-                                    "expected object name".to_string(),
-                                ))
-                            }
-                        };
-
-                        //quotes
-                        let Some(token) = tokens.next() else {
-                            return Err(ParserErrors::ParsingError(
-                                "expected more tokens".to_string(),
-                            ));
-                        };
-                        match token {
-                            Tokens::DoubleQuote => (),
-                            _ => {
-                                return Err(ParserErrors::ParsingError(
-                                    "expected double quote".to_string(),
-                                ))
-                            }
-                        };
-
-                        //colon
-                        let Some(token) = tokens.next() else {
-                            return Err(ParserErrors::ParsingError(
-                                "expected more tokens".to_string(),
-                            ));
-                        };
-                        match token {
-                            Tokens::Colon => (),
-                            _ => {
-                                return Err(ParserErrors::ParsingError(
-                                    "expected colon".to_string(),
-                                ))
-                            }
-                        };
-
-                        //value
-                        let Some(token) = tokens.next() else {
-                            return Err(ParserErrors::ParsingError(
-                                "expected more tokens".to_string(),
-                            ));
-                        };
-                        match token {
-                            Tokens::DoubleQuote => {
-                                //String Value
-                                let Some(token) = tokens.next() else {
-                                    return Err(ParserErrors::ParsingError(
-                                        "expected more tokens".to_string(),
-                                    ));
-                                };
-                                match token {
-                                    Tokens::StringValue(_) => object_value = token.clone(),
-                                    _ => {
-                                        return Err(ParserErrors::ParsingError(
-                                            "expected object value".to_string(),
-                                        ))
-                                    }
-                                };
-                                // closing quotes
-                                let Some(token) = tokens.next() else {
-                                    return Err(ParserErrors::ParsingError(
-                                        "expected more tokens".to_string(),
-                                    ));
-                                };
-                                match token {
-                                    Tokens::DoubleQuote => (),
-                                    _ => {
-                                        return Err(ParserErrors::ParsingError(
-                                            "expected double quote".to_string(),
-                                        ))
-                                    }
-                                };
-                            }
-                            Tokens::IntegerValue(_) => object_value = token.clone(),
-                            Tokens::FloatValue(_) => object_value = token.clone(),
-                            Tokens::BooleanValue(_) => object_value = token.clone(),
-                            Tokens::NullValue => object_value = token.clone(),
-                            // Tokens::LeftBrace -- object
-                            // Tokens::LeftBracket -- array
-                            _ => {
-                                return Err(ParserErrors::ParsingError(
-                                    "expected double quote".to_string(),
-                                ))
-                            }
-                        };
-
-                        let object = Object {
-                            name: object_name,
-                            value: object_value,
-                        };
-                        self.data.push(JSONStruct::Object(object));
-
-                        let Some(token) = tokens.next() else {
-                            return Err(ParserErrors::ParsingError(
-                                "expected more tokens".to_string(),
-                            ));
-                        };
-                        match token {
-                            Tokens::RightBrace => (),
-                            Tokens::Comma => continue,
-                            _ => {
-                                return Err(ParserErrors::ParsingError(
-                                    "expected right brace".to_string(),
-                                ))
-                            }
-                        };
-                    }
-                }
-                Tokens::LeftBracket => {
-                    let Some(token) = tokens.peek() else {
-                        return Err(ParserErrors::ParsingError("expected token".to_string()));
-                    };
-                    if **(token) == Tokens::RightBracket {
-                        //empty list. Note that it is valid and should be pushed into the document
-                        self.data
-                            .push(JSONStruct::List(List { values: Vec::new() }));
-                        tokens.next();
-                        continue;
-                    }
-
-                    //     let mut list: Vec<Tokens> = Vec::new();
-                    //     while let Some(token) = tokens.next() {
-                    //         //parse list
-                    //         match token {
-                    //             Tokens::DoubleQuote => {
-                    //                 let Some(token) = tokens.next() else {
-                    //                     return Err(ParserErrors::ParsingError(
-                    //                         "expected more tokens".to_string(),
-                    //                     ));
-                    //                 };
-                    //             }
-                    //         }
-                    //     }
-                }
-                Tokens::EOF => break,
-                _ => {
-                    return Err(ParserErrors::ParsingError(
-                        "expected object or list".to_string(),
-                    ))
-                }
-            };
-        }
         Ok(true)
     }
 }
-
-// fn parse_value(mut tokens: Peekable<Iter<'_, Tokens>>) -> Result<Tokens, ParserErrors> {
-// fn parse_value<T>(mut tokens: T) -> Result<Tokens, ParserErrors>
-// where
-//     T: Iterator<Item = Tokens>(iter: Peekable<T>)
-// {
-//     //value
-//     tokens.p
-//     let Some(token) = tokens.next() else {
-//         return Err(ParserErrors::ParsingError(
-//             "expected more tokens".to_string(),
-//         ));
-//     };
-
-//     match token {
-//         Tokens::DoubleQuote => {
-//             //String Value
-//             let Some(token) = tokens.next() else {
-//                 return Err(ParserErrors::ParsingError(
-//                     "expected more tokens".to_string(),
-//                 ));
-//             };
-//             match token {
-//                 Tokens::StringValue(_) => object_value = token.clone(),
-//                 _ => {
-//                     return Err(ParserErrors::ParsingError(
-//                         "expected object value".to_string(),
-//                     ))
-//                 }
-//             };
-//             // closing quotes
-//             let Some(token) = tokens.next() else {
-//                 return Err(ParserErrors::ParsingError(
-//                     "expected more tokens".to_string(),
-//                 ));
-//             };
-//             match token {
-//                 Tokens::DoubleQuote => (),
-//                 _ => {
-//                     return Err(ParserErrors::ParsingError(
-//                         "expected double quote".to_string(),
-//                     ))
-//                 }
-//             };
-//         }
-//         Tokens::IntegerValue(val) => Ok(Tokens::IntegerValue(val)),
-//         Tokens::FloatValue(_) => object_value = token.clone(),
-//         Tokens::BooleanValue(_) => object_value = token.clone(),
-//         Tokens::NullValue => object_value = token.clone(),
-//         // Tokens::LeftBrace -- object
-//         // Tokens::LeftBracket -- array
-//         _ => {
-//             return Err(ParserErrors::ParsingError(
-//                 "expected double quote".to_string(),
-//             ))
-//         }
-//     };
-//     Ok(Tokens::EOF)
-// }
 
 struct Config {
     file_path: String,
@@ -412,7 +350,7 @@ pub fn run() -> Result<(), ParserErrors> {
 
     let tokens = tokenize(data)?;
 
-    let json_document = &mut JSONDocument { data: Vec::new() };
+    let json_document = &mut JSONDocument {};
     json_document.parse(tokens)?;
 
     println!("valid json!");
@@ -602,7 +540,7 @@ mod tests {
     #[test]
     fn test_parse_works_on_single_braces_document() {
         let tokens: Vec<Tokens> = vec![Tokens::LeftBrace, Tokens::RightBrace];
-        let json_document = &mut JSONDocument { data: Vec::new() };
+        let json_document = &mut JSONDocument {};
         let valid = json_document.parse(tokens).unwrap();
 
         assert!(valid);
@@ -612,7 +550,7 @@ mod tests {
     fn test_parse_fails_on_invalid_tokens() {
         let tokens: Vec<Tokens> = vec![Tokens::RightBrace, Tokens::RightBrace];
 
-        let json_document = &mut JSONDocument { data: Vec::new() };
+        let json_document = &mut JSONDocument {};
 
         assert!(json_document.parse(tokens).is_err());
     }
@@ -620,7 +558,7 @@ mod tests {
     #[test]
     fn test_parse_fails_on_short_tokens() {
         let tokens: Vec<Tokens> = Vec::new();
-        let json_document = &mut JSONDocument { data: Vec::new() };
+        let json_document = &mut JSONDocument {};
         assert!(json_document.parse(tokens).is_err());
     }
 
@@ -639,7 +577,7 @@ mod tests {
             Tokens::EOF,
         ];
 
-        let json_document = &mut JSONDocument { data: Vec::new() };
+        let json_document = &mut JSONDocument {};
         let valid = json_document.parse(tokens).unwrap();
         assert!(valid);
     }
@@ -679,14 +617,14 @@ mod tests {
             Tokens::EOF,
         ];
 
-        let json_document = &mut JSONDocument { data: Vec::new() };
+        let json_document = &mut JSONDocument {};
         let valid = json_document.parse(tokens).unwrap();
         assert!(valid);
     }
     #[test]
     fn test_parse_works_on_single_brackets_document() {
-        let tokens: Vec<Tokens> = vec![Tokens::LeftBracket, Tokens::RightBracket];
-        let json_document = &mut JSONDocument { data: Vec::new() };
+        let tokens: Vec<Tokens> = vec![Tokens::LeftBracket, Tokens::RightBracket, Tokens::EOF];
+        let json_document = &mut JSONDocument {};
         let valid = json_document.parse(tokens).unwrap();
 
         assert!(valid);
@@ -704,7 +642,7 @@ mod tests {
             Tokens::RightBracket,
             Tokens::EOF,
         ];
-        let json_document = &mut JSONDocument { data: Vec::new() };
+        let json_document = &mut JSONDocument {};
         let valid = json_document.parse(tokens).unwrap();
 
         assert!(valid);
