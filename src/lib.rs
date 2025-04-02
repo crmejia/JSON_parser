@@ -21,7 +21,7 @@ impl Tokens {
         tokens: &mut impl Iterator<Item = &'a Tokens>,
     ) -> Result<String, ParserErrors> {
         //the idea is to make sure the correct structure("<value>") exist and
-        //return the stringvalue token already parsed in a subset of items
+        //return the StringValue token already parsed in a subset of items
 
         let Some(token) = tokens.next() else {
             return Err(ParserErrors::ParsingError(
@@ -73,8 +73,7 @@ fn tokenize(input: String) -> Result<Vec<Tokens>, ParserErrors> {
                     let mut buffer: String = c.to_string();
 
                     while let Some(c) = chars.peek() {
-                        // if *c == '{' || *c == '}' || *c == '"' || *c == ':' || *c == ',' {
-                        if !c.is_alphanumeric() && *c != '.' && *c != '-' {
+                        if !c.is_alphanumeric() && *c != '.' && *c != '-' && *c != ' ' {
                             if *c != '"'
                                 && (buffer == "true" || buffer == "false" || buffer == "null")
                             {
@@ -122,14 +121,14 @@ fn parse_object<'a>(
     tokens: &mut Peekable<impl Iterator<Item = &'a Tokens>>,
 ) -> Result<(), ParserErrors> {
     while let Some(token) = tokens.next() {
-        println!("*** TOKEN = {:?} ***", token);
         match token {
             Tokens::EOF => break,
             Tokens::LeftBrace => continue,
             Tokens::RightBrace => {
                 // empty object
                 //Check if next value is not { means no more objects
-                continue;
+                // continue;
+                break;
             }
             Tokens::Comma => continue,
             _ => {
@@ -139,7 +138,7 @@ fn parse_object<'a>(
                     ));
                 }
                 //todo skip { if new iteration the function enters with the { already consumed
-                // let key = Tokens::parse_string_value(tokens)?;
+                // let key =Tokens::parse_string_value(tokens)?;
                 Tokens::parse_string_value(tokens)?;
 
                 let Some(token) = tokens.next() else {
@@ -160,13 +159,9 @@ fn parse_object<'a>(
                 match *token {
                     Tokens::LeftBrace => {
                         parse_object(tokens)?;
-                        // let value = JSONnode::parse_object(tokens)?;
-                        // let object = Box::new(JSONnode::Object(Object { key, value }));
-                        // objects.push(object);
                     }
                     Tokens::LeftBracket => parse_list(tokens)?,
                     Tokens::DoubleQuote => {
-                        println!("**HERE***");
                         let Some(_) = tokens.next() else {
                             return Err(ParserErrors::ParsingError(
                                 "expected more tokens".to_string(),
@@ -196,9 +191,6 @@ fn parse_object<'a>(
                             ));
                         };
                         parse_value(token)?;
-                        // let value = JSONnode::parse_value(tokens)?;
-                        // let object = JSONnode::Object(vec![Object { key, value }]);
-                        // objects.push(object);
                     }
                 };
             }
@@ -217,7 +209,8 @@ fn parse_list<'a>(
             Tokens::RightBracket =>
             //empty list
             {
-                continue
+                // continue;
+                break;
             }
             Tokens::Comma => continue,
             Tokens::LeftBrace => parse_object(tokens)?,
@@ -252,29 +245,12 @@ fn parse_value(token: &Tokens) -> Result<(), ParserErrors> {
         Tokens::FloatValue(_) => (),
         Tokens::BooleanValue(_) => (),
         Tokens::NullValue => (),
-        _ => {
-            return {
-                println!("*** TOKEN = {:?}", token);
-                Err(ParserErrors::ParsingError("unexpected token".to_string()))
-            }
-        }
+        _ => return Err(ParserErrors::ParsingError("unexpected token".to_string())),
     };
     Ok(())
 }
-// }
 
-// #[derive(Clone)]
-// struct Object {
-//     key: String,
-//     value: Box<Vec<JSONnode>>, //keeping it string for now
-// }
-
-// struct List {
-//     values: Vec<Tokens>,
-// }
-struct JSONDocument {
-    // data: Vec<JSONnode>,
-}
+struct JSONDocument {}
 impl JSONDocument {
     fn parse(&mut self, tokens: Vec<Tokens>) -> Result<bool, ParserErrors> {
         if tokens.len() < 2 {
@@ -514,7 +490,7 @@ mod tests {
 
     #[test]
     fn test_tokenize_list_nested_object() {
-        let tokens = tokenize("[\"one\", 2, { \"key\": true}]".into()).unwrap();
+        let tokens = tokenize("[\"one\", 2, { \"inner key\": true}]".into()).unwrap();
 
         assert_eq!(tokens.len(), 16);
         assert_eq!(Tokens::LeftBracket, tokens[0]);
@@ -527,7 +503,7 @@ mod tests {
 
         assert_eq!(Tokens::LeftBrace, tokens[7]);
         assert_eq!(Tokens::DoubleQuote, tokens[8]);
-        assert_eq!(Tokens::StringValue("key".into()), tokens[9]);
+        assert_eq!(Tokens::StringValue("inner key".into()), tokens[9]);
         assert_eq!(Tokens::DoubleQuote, tokens[10]);
         assert_eq!(Tokens::Colon, tokens[11]);
         assert_eq!(Tokens::BooleanValue(true), tokens[12]);
@@ -645,6 +621,96 @@ mod tests {
         let json_document = &mut JSONDocument {};
         let valid = json_document.parse(tokens).unwrap();
 
+        assert!(valid);
+    }
+
+    #[test]
+    fn test_parse_object_and_list() {
+        let tokens = vec![
+            Tokens::LeftBrace,
+            Tokens::DoubleQuote,
+            Tokens::StringValue("key".into()),
+            Tokens::DoubleQuote,
+            Tokens::Colon,
+            Tokens::DoubleQuote,
+            Tokens::StringValue("value".into()),
+            Tokens::DoubleQuote,
+            Tokens::Comma,
+            Tokens::DoubleQuote,
+            Tokens::StringValue("key-n".into()),
+            Tokens::DoubleQuote,
+            Tokens::Colon,
+            Tokens::IntegerValue(101),
+            Tokens::Comma,
+            Tokens::DoubleQuote,
+            Tokens::StringValue("key-o".into()),
+            Tokens::DoubleQuote,
+            Tokens::Colon,
+            Tokens::LeftBrace,
+            Tokens::RightBrace,
+            Tokens::Comma,
+            Tokens::DoubleQuote,
+            Tokens::StringValue("key-l".into()),
+            Tokens::DoubleQuote,
+            Tokens::Colon,
+            Tokens::LeftBracket,
+            Tokens::RightBracket,
+            Tokens::RightBrace,
+            Tokens::EOF,
+        ];
+
+        let json_document = &mut JSONDocument {};
+        let valid = json_document.parse(tokens).unwrap();
+        assert!(valid);
+    }
+
+    #[test]
+    fn test_parse_object_and_list_nested() {
+        let tokens = vec![
+            Tokens::LeftBrace,
+            Tokens::DoubleQuote,
+            Tokens::StringValue("key".into()),
+            Tokens::DoubleQuote,
+            Tokens::Colon,
+            Tokens::DoubleQuote,
+            Tokens::StringValue("value".into()),
+            Tokens::DoubleQuote,
+            Tokens::Comma,
+            Tokens::DoubleQuote,
+            Tokens::StringValue("key-n".into()),
+            Tokens::DoubleQuote,
+            Tokens::Colon,
+            Tokens::IntegerValue(101),
+            Tokens::Comma,
+            Tokens::DoubleQuote,
+            Tokens::StringValue("key-o".into()),
+            Tokens::DoubleQuote,
+            Tokens::Colon,
+            Tokens::LeftBrace,
+            Tokens::DoubleQuote,
+            Tokens::StringValue("inner key".into()),
+            Tokens::DoubleQuote,
+            Tokens::Colon,
+            Tokens::DoubleQuote,
+            Tokens::StringValue("inner value".into()),
+            Tokens::DoubleQuote,
+            Tokens::RightBrace,
+            Tokens::Comma,
+            Tokens::DoubleQuote,
+            Tokens::StringValue("key-l".into()),
+            Tokens::DoubleQuote,
+            Tokens::Colon,
+            Tokens::LeftBracket,
+            Tokens::DoubleQuote,
+            Tokens::StringValue("list value".into()),
+            Tokens::DoubleQuote,
+            Tokens::RightBracket,
+            Tokens::RightBrace,
+            Tokens::EOF,
+        ];
+
+        let json_document = &mut JSONDocument {};
+        let valid = json_document.parse(tokens).unwrap();
         assert!(valid);
     }
 }
