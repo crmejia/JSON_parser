@@ -60,44 +60,57 @@ fn tokenize(input: String) -> Result<Vec<Tokens>, ParserErrors> {
         if c.is_whitespace() {
             continue;
         }
+
         match c {
             '{' => tokens.push(Tokens::LeftBrace),
             '}' => tokens.push(Tokens::RightBrace),
             '[' => tokens.push(Tokens::LeftBracket),
             ']' => tokens.push(Tokens::RightBracket),
-            '"' => tokens.push(Tokens::DoubleQuote),
+            '"' => {
+                tokens.push(Tokens::DoubleQuote);
+                let mut buffer: String = String::new();
+                while let Some(c) = chars.next() {
+                    //don't eat the whitespace inside quotes
+                    if c == '"' {
+                        let Some(peek_c) = chars.peek() else {
+                            return Err(ParserErrors::TokenizeError);
+                        };
+                        if *peek_c != ',' && *peek_c != ':' && *peek_c != ']' && *peek_c != '}' {
+                            //this is a escaped double quote
+                            buffer.push(c);
+                            continue;
+                        }
+                        tokens.push(Tokens::StringValue(buffer));
+                        tokens.push(Tokens::DoubleQuote);
+                        break;
+                    }
+                    buffer.push(c);
+                }
+            }
             ':' => tokens.push(Tokens::Colon),
             ',' => tokens.push(Tokens::Comma),
             _ => {
-                if c.is_alphanumeric() || c == '-' {
+                if c.is_alphanumeric() || c == '-' || c == '+' {
                     let mut buffer: String = c.to_string();
 
                     while let Some(c) = chars.peek() {
-                        if !c.is_alphanumeric() && *c != '.' && *c != '-' && *c != ' ' {
-                            if *c != '"'
-                                && (buffer == "true" || buffer == "false" || buffer == "null")
+                        if !c.is_alphanumeric() && *c != '.' && *c != '-' && *c != '+' {
+                            if buffer == "true" {
+                                tokens.push(Tokens::BooleanValue(true));
+                            } else if buffer == "false" {
+                                tokens.push(Tokens::BooleanValue(false));
+                            } else if buffer == "null" {
+                                tokens.push(Tokens::NullValue);
+                            } else if buffer.contains(".")
+                                || buffer.contains("e")
+                                || buffer.contains("E")
                             {
-                                if buffer == "true" {
-                                    tokens.push(Tokens::BooleanValue(true));
-                                } else if buffer == "false" {
-                                    tokens.push(Tokens::BooleanValue(false));
-                                } else {
-                                    tokens.push(Tokens::NullValue);
-                                }
-                            } else if *c == '"' {
-                                tokens.push(Tokens::StringValue(buffer));
+                                println!("{buffer}");
+                                let float = buffer.parse::<f32>()?;
+                                tokens.push(Tokens::FloatValue(float));
                             } else {
-                                //parse a numerical value
-                                if buffer.contains(".")
-                                    || buffer.contains("e")
-                                    || buffer.contains("E")
-                                {
-                                    let float = buffer.parse::<f32>()?;
-                                    tokens.push(Tokens::FloatValue(float));
-                                } else {
-                                    let integer = buffer.parse::<i32>()?;
-                                    tokens.push(Tokens::IntegerValue(integer));
-                                }
+                                let integer = buffer.parse::<i32>()?;
+                                tokens.push(Tokens::IntegerValue(integer));
                             }
                             break;
                         }
@@ -108,6 +121,7 @@ fn tokenize(input: String) -> Result<Vec<Tokens>, ParserErrors> {
                         buffer.push(c);
                     }
                 } else {
+                    println!("tokenix {:?}", tokens);
                     return Err(ParserErrors::TokenizeError);
                 }
             }
@@ -509,6 +523,24 @@ mod tests {
         assert_eq!(Tokens::BooleanValue(true), tokens[12]);
         assert_eq!(Tokens::RightBrace, tokens[13]);
         assert_eq!(Tokens::RightBracket, tokens[14]);
+    }
+
+    #[test]
+    fn test_tokenize_quote() {
+        let input: String = "{\"key\": \"\"\"}".into();
+
+        let tokens = tokenize(input).unwrap();
+
+        assert_eq!(tokens.len(), 10);
+        assert_eq!(Tokens::LeftBrace, tokens[0]);
+        assert_eq!(Tokens::DoubleQuote, tokens[1]);
+        assert_eq!(Tokens::StringValue("key".into()), tokens[2]);
+        assert_eq!(Tokens::DoubleQuote, tokens[3]);
+        assert_eq!(Tokens::Colon, tokens[4]);
+        assert_eq!(Tokens::DoubleQuote, tokens[5]);
+        assert_eq!(Tokens::StringValue("\"".into()), tokens[6]);
+        assert_eq!(Tokens::DoubleQuote, tokens[7]);
+        assert_eq!(Tokens::RightBrace, tokens[8]);
     }
 
     //Parsing tests
